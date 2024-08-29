@@ -35,7 +35,6 @@ void onDataReceived(const uint8_t *mac, const uint8_t *incomingData, int len);
 NowService::NowService() 
 {
     instance = this;
-    xTaskCreatePinnedToCore(worker, "Worker Loop", 2048, NULL, 1, NULL, 1); // Pinned to core 1
 }
 
 NowService::~NowService()
@@ -56,6 +55,9 @@ void NowService::initialize(PeerFoundCallback callback, bool isServer)
     //  register callbacks
     esp_now_register_send_cb(onDataSent);
     esp_now_register_recv_cb(esp_now_recv_cb_t(onDataReceived));
+
+    //  start the task
+    xTaskCreatePinnedToCore(worker, "Worker Loop", 2048, NULL, 1, NULL, 0);
 
     serviceMode = Initialized;
 }
@@ -88,7 +90,18 @@ void NowService::endDiscovery()
 
 bool NowService::sendData(uint8_t *mac, uint8_t *data, int length)
 {
+    if (!esp_now_is_peer_exist(mac)) 
+    {
+        const uint8_t m[6] = { mac[0], mac[1], mac[2], mac[3], mac[4], mac[5] };
+        esp_now_peer_info peer;
+        peer.channel = 0;
+        peer.encrypt = false;
+        memcpy(peer.peer_addr, mac, 6);
+        esp_now_add_peer(&peer);
+    }
+
     esp_err_t result = esp_now_send(mac, data, length);
+    Serial.print("Data sent: "); Serial.println(result);
     return (result == ESP_OK)? true : false;
 }
 
@@ -107,7 +120,7 @@ void advertise()
     info.time = millis();
     memcpy(info.macAddress, macAddress, 6);
     bool success = instance->sendData((uint8_t *)broadcastMac, (uint8_t *)&info, sizeof(info));
-    Serial.print("Advertisement sent "); Serial.println(success);
+    Serial.print("Advertisement sent "); Serial.print(success); Serial.print(", Mode: "); Serial.println(serviceMode);
 }
 
 
@@ -129,28 +142,34 @@ void worker(void *pvParameters)
         unsigned long now = millis();
         unsigned long ticks = now - lastTick;
         lastTick = now;
+
         //  must we advertise
-        if (serviceMode & Advertise == Advertise)
+        Serial.print("*** Service Mode: "); Serial.println(serviceMode);
+        if ((serviceMode & Advertise) == Advertise)
         {
+            Serial.println("\tAdvertise: true");
             advertiseTicks += ticks;
             if (advertiseTicks > advertiseInterval)
             {
+                Serial.print("\t\tInterval: "); Serial.println(advertiseTicks);
                 advertiseTicks = 0;
                 advertise();
             }
             //  stop advertising
-            if (now - advertiseStart >= advertisePeriod) serviceMode ^= Advertise;
+            if ((serviceMode & Advertise == Advertise) && (now - advertiseStart >= advertisePeriod)) serviceMode ^= Advertise;
         }
-        if (serviceMode & Discovery == Discovery)
+        if ((serviceMode & Discovery) == Discovery)
         {
+            Serial.println("\tDiscovery: true");
             //  check if we need to stop discovery
             if ((discoveryPeriod > 0) && (now - discoveryStart >= discoveryPeriod))
             {
+                Serial.println("\t\tTime to stop discovery");
                 serviceMode ^= Discovery;
             }
         }
         //  give back to the processor
-        vTaskDelay(10);
+        vTaskDelay(1000);
     }
     Serial.println("Worker loop teminated");
 }
@@ -161,13 +180,14 @@ void worker(void *pvParameters)
 
 void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
+    Serial.print("Data send complete with status: "); Serial.println(status);
     if (status == ESP_OK) return;
     Serial.print("*** Data sending failed with the following error: "); Serial.println(status);
 }
 
 void onDataReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
-    Serial.println("Data received");
+    Serial.print("Data received: "); Serial.println(len);
     //  do we don't receive our own data
     if (macEquals(macAddress, mac))
     {
@@ -177,7 +197,11 @@ void onDataReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
 
     if (serviceMode & Discovery == Discovery)
     {
-        if (instance->onPeerFound == nullptr) return;
+        if ((instance->onPeerFound == nullptr) || (len != sizeof(DiscoveryInfo))) 
+        {
+            Serial.println("Data does not appear to be DiscoveryInfo data!");
+            return;
+        }
         //  receive the data
         DiscoveryInfo info;
         memcpy(&info, incomingData, sizeof(info));
@@ -191,3 +215,4 @@ void onDataReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
 }
 
 #pragma endregion Callbacks
+

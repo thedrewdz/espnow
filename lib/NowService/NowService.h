@@ -36,6 +36,7 @@ public:
 
     bool sendData(uint8_t *mac, uint8_t *data, int length);
     void broadcastData(uint8_t *data, int length);
+    // void update();
 };
 
 #endif // NOW_SERVICE_H

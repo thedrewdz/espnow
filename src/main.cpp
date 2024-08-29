@@ -20,12 +20,14 @@ void setup()
     Serial.print("Own MAC is: "); Serial.println(_macAddress);
     //  initialize the ESP-NOW service and start advertising
     service.initialize(onPeerFound, false);
-    service.beginAdverise(_macPointer, 1000);
+    service.beginAdverise(_macPointer, 2000, 3000);
     service.beginDiscovery();
 }
 
 void loop()
 {
+    // Serial.print("Free heap size: "); Serial.println(esp_get_free_heap_size());
+    // service.update();
     delay(10);
 }
 
