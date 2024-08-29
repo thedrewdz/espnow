@@ -20,7 +20,7 @@ void setup()
     Serial.print("Own MAC is: "); Serial.println(_macAddress);
     //  initialize the ESP-NOW service and start advertising
     service.initialize(onPeerFound, false);
-    service.beginAdverise(_macPointer);
+    service.beginAdverise(_macPointer, 1000);
     service.beginDiscovery();
 }
 

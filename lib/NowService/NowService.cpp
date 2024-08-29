@@ -106,7 +106,8 @@ void advertise()
     DiscoveryInfo info;
     info.time = millis();
     memcpy(info.macAddress, macAddress, 6);
-    instance->sendData((uint8_t *)broadcastMac, (uint8_t *)&info, sizeof(info));
+    bool success = instance->sendData((uint8_t *)broadcastMac, (uint8_t *)&info, sizeof(info));
+    Serial.print("Advertisement sent "); Serial.println(success);
 }
 
 
@@ -122,7 +123,8 @@ bool macEquals(const uint8_t *mac1, const uint8_t *mac2)
 //  this method should be executed on core 1 so as not to interfere with WIFI and ESP-NOW functions
 void worker(void *pvParameters)
 {
-    while(serviceMode != ServiceMode::Terminate)
+    Serial.println("Starting worker loop");
+    while(serviceMode != Terminate)
     {
         unsigned long now = millis();
         unsigned long ticks = now - lastTick;
@@ -150,6 +152,7 @@ void worker(void *pvParameters)
         //  give back to the processor
         vTaskDelay(10);
     }
+    Serial.println("Worker loop teminated");
 }
 
 #pragma endregion Worker Loop
@@ -164,6 +167,7 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 
 void onDataReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
+    Serial.println("Data received");
     //  do we don't receive our own data
     if (macEquals(macAddress, mac))
     {
