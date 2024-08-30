@@ -10,7 +10,7 @@ uint8_t _macPointer[6];
 std::vector<uint8_t*> peers;
 
 void readMacAddress();
-String macToString(uint8_t *mac);
+// String macToString(uint8_t *mac);
 void onPeerFound(DiscoveryInfo info);
 
 bool connect = true;
@@ -46,7 +46,9 @@ void loop()
         String data = "This is random data from " + _macAddress + ": " + String(random(1000));
         for (int i = 0; i < peers.size(); i++)
         {
-            if (!service.sendData(peers.at(i), (uint8_t*)data.c_str(), sizeof(data)))
+            uint8_t* mac = peers.at(i);
+            Serial.print("Sending data to: "); Serial.println(service.macToString(mac));
+            if (!service.sendData(mac, (uint8_t*)data.c_str(), sizeof(data)))
             {
                 Serial.println("Sending data failed.");
             }
@@ -62,7 +64,7 @@ void readMacAddress()
     esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, _macPointer);
     if (ret == ESP_OK)
     {
-        _macAddress = macToString(_macPointer);
+        _macAddress = service.macToString(_macPointer);
     }
     else
     {
@@ -70,21 +72,21 @@ void readMacAddress()
     }
 }
 
-String macToString(uint8_t *mac)
-{
-    char buffer[18];
+// String macToString(uint8_t *mac)
+// {
+//     char buffer[18];
 
-    snprintf(buffer, 
-        sizeof(buffer), 
-        "%02x:%02x:%02x:%02x:%02x:%02x\n", 
-        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+//     snprintf(buffer, 
+//         sizeof(buffer), 
+//         "%02x:%02x:%02x:%02x:%02x:%02x\n", 
+//         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-    return String(buffer);
-}
+//     return String(buffer);
+// }
 
 void onPeerFound(DiscoveryInfo info)
 {
-    Serial.print("Found Peer: "); Serial.println(macToString(info.macAddress));
+    Serial.print("Found Peer: "); Serial.println(service.macToString(info.macAddress));
     peers.push_back(info.macAddress);
 }
 

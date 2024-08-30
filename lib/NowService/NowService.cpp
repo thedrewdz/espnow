@@ -29,6 +29,7 @@ unsigned long lastTick = 0;
 void worker(void *pvParameters);
 void onSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 void onReceived(const uint8_t *mac, const uint8_t *incomingData, int len);
+String macToString(uint8_t *mac);
 
 #pragma endregion Prototypes
 
@@ -94,9 +95,11 @@ bool NowService::sendData(uint8_t *mac, uint8_t *data, int length)
     {
         const uint8_t m[6] = { mac[0], mac[1], mac[2], mac[3], mac[4], mac[5] };
         esp_now_peer_info peer;
+        memset(&peer, 0, sizeof(esp_now_peer_info_t));
         peer.channel = 0;
         peer.encrypt = false;
-        memcpy(peer.peer_addr, mac, 6);
+        memcpy(peer.peer_addr, m, 6);
+        Serial.print("\t\tAdding peer:" ); Serial.println(macToString(mac));
         esp_now_add_peer(&peer);
     }
 
@@ -127,6 +130,18 @@ void advertise()
 bool macEquals(const uint8_t *mac1, const uint8_t *mac2) 
 {
     return memcmp(mac1, mac2, 6) == 0;
+}
+
+String NowService::macToString(uint8_t *mac)
+{
+    char buffer[18];
+
+    snprintf(buffer, 
+        sizeof(buffer), 
+        "%02x:%02x:%02x:%02x:%02x:%02x\n", 
+        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    return String(buffer);
 }
 
 #pragma endregion Helpers
