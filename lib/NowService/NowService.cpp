@@ -43,8 +43,11 @@ NowService::~NowService()
     delete(instance);
 }
 
-void NowService::initialize(PeerFoundCallback callback, bool isServer) 
+void NowService::initialize(PeerFoundCallback peerFound, DataReceivedCallback dataRecevied, bool isServer) 
 {
+    onPeerFound = peerFound;
+    onDataReceived = dataRecevied;
+    
     serviceMode |= (isServer)? Server : Client;
     //  initialize wifi first
     WiFi.mode(WIFI_STA);

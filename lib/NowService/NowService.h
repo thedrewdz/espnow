@@ -31,7 +31,7 @@ public:
 
     ~NowService();
 
-    void initialize(PeerFoundCallback callback, bool isServer = false);
+    void initialize(PeerFoundCallback peerFound, DataReceivedCallback dataRecevied, bool isServer = false);
     void beginAdverise(uint8_t *mac, int interval = 1000, unsigned long period = 300000);
     void endAdvertise();
     void beginDiscovery(unsigned long period = 0);
