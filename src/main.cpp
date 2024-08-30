@@ -54,7 +54,7 @@ void loop()
             }
         }
     }
-    delay(10);
+    delay(1000);
 }
 
 void readMacAddress()
