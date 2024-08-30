@@ -24,6 +24,9 @@ public:
     using PeerFoundCallback = std::function<void(DiscoveryInfo)>;
     PeerFoundCallback onPeerFound;
 
+    using DataReceivedCallback = std::function<void(uint8_t*)>;
+    DataReceivedCallback onDataReceived;
+
     NowService();
 
     ~NowService();
@@ -36,7 +39,6 @@ public:
 
     bool sendData(uint8_t *mac, uint8_t *data, int length);
     void broadcastData(uint8_t *data, int length);
-    // void update();
 };
 
 #endif // NOW_SERVICE_H

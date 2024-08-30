@@ -2,14 +2,18 @@
 #include <NowService.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
+#include <vector>
 
 NowService service;
 String _macAddress;
 uint8_t _macPointer[6];
+std::vector<uint8_t*> peers;
 
 void readMacAddress();
 String macToString(uint8_t *mac);
 void onPeerFound(DiscoveryInfo info);
+
+bool connect = true;
 
 void setup() 
 {
@@ -26,8 +30,28 @@ void setup()
 
 void loop()
 {
-    // Serial.print("Free heap size: "); Serial.println(esp_get_free_heap_size());
-    // service.update();
+    //  wait for peers to be discovered
+    if (connect) 
+    {
+        if (peers.size() >= 1)
+        {
+            connect = false;
+            service.endAdvertise();
+            service.endDiscovery();
+        }
+    }
+    else 
+    {
+        //  send some random data
+        String data = "This is random data from " + _macAddress + ": " + String(random(1000));
+        for (int i = 0; i < peers.size(); i++)
+        {
+            if (!service.sendData(peers.at(i), (uint8_t*)data.c_str(), sizeof(data)))
+            {
+                Serial.println("Sending data failed.");
+            }
+        }
+    }
     delay(10);
 }
 
@@ -61,4 +85,12 @@ String macToString(uint8_t *mac)
 void onPeerFound(DiscoveryInfo info)
 {
     Serial.print("Found Peer: "); Serial.println(macToString(info.macAddress));
+    peers.push_back(info.macAddress);
+}
+
+void onDataReceived(uint8_t* data) 
+{
+    //  get data as string (assuming json)
+    String json(data, sizeof(data));
+    Serial.print("*** Data received: "); Serial.println(json);
 }

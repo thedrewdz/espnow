@@ -27,8 +27,8 @@ unsigned long lastTick = 0;
 #pragma region Prototypes
 
 void worker(void *pvParameters);
-void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
-void onDataReceived(const uint8_t *mac, const uint8_t *incomingData, int len);
+void onSent(const uint8_t *mac_addr, esp_now_send_status_t status);
+void onReceived(const uint8_t *mac, const uint8_t *incomingData, int len);
 
 #pragma endregion Prototypes
 
@@ -53,8 +53,8 @@ void NowService::initialize(PeerFoundCallback callback, bool isServer)
         return;
     }
     //  register callbacks
-    esp_now_register_send_cb(onDataSent);
-    esp_now_register_recv_cb(esp_now_recv_cb_t(onDataReceived));
+    esp_now_register_send_cb(onSent);
+    esp_now_register_recv_cb(esp_now_recv_cb_t(onReceived));
 
     //  start the task
     xTaskCreatePinnedToCore(worker, "Worker Loop", 2048, NULL, 1, NULL, 0);
@@ -178,14 +178,14 @@ void worker(void *pvParameters)
 
 #pragma region Callbacks
 
-void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+void onSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
     Serial.print("Data send complete with status: "); Serial.println(status);
     if (status == ESP_OK) return;
     Serial.print("*** Data sending failed with the following error: "); Serial.println(status);
 }
 
-void onDataReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
+void onReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
     Serial.print("Data received: "); Serial.println(len);
     //  do we don't receive our own data
@@ -210,7 +210,8 @@ void onDataReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
     }
     else 
     {
-
+        if (instance->onDataReceived == nullptr) return;
+        instance->onDataReceived((uint8_t*)incomingData);
     }
 }
 
