@@ -99,12 +99,10 @@ bool NowService::sendData(uint8_t *mac, uint8_t *data, int length)
         peer.channel = 0;
         peer.encrypt = false;
         memcpy(peer.peer_addr, m, 6);
-        Serial.print("\t\tAdding peer:" ); Serial.println(macToString(mac));
         esp_now_add_peer(&peer);
     }
 
     esp_err_t result = esp_now_send(mac, data, length);
-    Serial.print("Data sent: "); Serial.println(result);
     return (result == ESP_OK)? true : false;
 }
 
@@ -120,6 +118,7 @@ void NowService::broadcastData(uint8_t *data, int length)
 void advertise() 
 {
     DiscoveryInfo info;
+    memset(&info, 0, sizeof(DiscoveryInfo));
     info.time = millis();
     memcpy(info.macAddress, macAddress, 6);
     bool success = instance->sendData((uint8_t *)broadcastMac, (uint8_t *)&info, sizeof(info));
@@ -212,11 +211,16 @@ void onReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
 
     if (serviceMode & Discovery == Discovery)
     {
-        if ((instance->onPeerFound == nullptr) || (len != sizeof(DiscoveryInfo))) 
+        if (instance->onPeerFound == nullptr)
         {
-            Serial.println("Data does not appear to be DiscoveryInfo data!");
+            Serial.println("Actuall, no one is listening!");
             return;
         }
+        // if (len != sizeof(DiscoveryInfo))
+        // {
+        //     Serial.println("Data does not appear to be DiscoveryInfo data!");
+        //     return;
+        // }
         //  receive the data
         DiscoveryInfo info;
         memcpy(&info, incomingData, sizeof(info));

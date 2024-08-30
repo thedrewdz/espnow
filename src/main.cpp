@@ -10,7 +10,6 @@ uint8_t _macPointer[6];
 std::vector<uint8_t*> peers;
 
 void readMacAddress();
-// String macToString(uint8_t *mac);
 void onPeerFound(DiscoveryInfo info);
 
 bool connect = true;
@@ -71,18 +70,6 @@ void readMacAddress()
         Serial.println("Failed to read MAC address");
     }
 }
-
-// String macToString(uint8_t *mac)
-// {
-//     char buffer[18];
-
-//     snprintf(buffer, 
-//         sizeof(buffer), 
-//         "%02x:%02x:%02x:%02x:%02x:%02x\n", 
-//         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
-//     return String(buffer);
-// }
 
 void onPeerFound(DiscoveryInfo info)
 {
