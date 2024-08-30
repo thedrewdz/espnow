@@ -11,6 +11,7 @@ std::vector<uint8_t*> peers;
 
 void readMacAddress();
 void onPeerFound(DiscoveryInfo info);
+void onDataReceived(uint8_t* data);
 
 bool connect = true;
 
@@ -22,7 +23,7 @@ void setup()
     readMacAddress();
     Serial.print("Own MAC is: "); Serial.println(_macAddress);
     //  initialize the ESP-NOW service and start advertising
-    service.initialize(onPeerFound, false);
+    service.initialize(onPeerFound, onDataReceived, false);
     service.beginAdverise(_macPointer, 2000, 3000);
     service.beginDiscovery();
 }
