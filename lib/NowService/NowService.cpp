@@ -236,8 +236,13 @@ void onReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
     }
     else 
     {
-        if (instance->onDataReceived == nullptr) return;
-        instance->onDataReceived((uint8_t*)incomingData);
+        if (instance->onDataReceived == nullptr) 
+        {
+            Serial.println("No one is listening");
+            return;
+        }
+        Serial.print("Received data: "); Serial.println(len);
+        instance->onDataReceived((uint8_t*)incomingData, len);
     }
 }
 

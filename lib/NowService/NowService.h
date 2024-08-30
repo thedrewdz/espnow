@@ -24,7 +24,7 @@ public:
     using PeerFoundCallback = std::function<void(DiscoveryInfo)>;
     PeerFoundCallback onPeerFound;
 
-    using DataReceivedCallback = std::function<void(uint8_t*)>;
+    using DataReceivedCallback = std::function<void(uint8_t*, int length)>;
     DataReceivedCallback onDataReceived;
 
     NowService();

@@ -11,7 +11,7 @@ std::vector<uint8_t*> peers;
 
 void readMacAddress();
 void onPeerFound(DiscoveryInfo info);
-void onDataReceived(uint8_t* data);
+void onDataReceived(uint8_t* data, int length);
 
 bool connect = true;
 
@@ -43,16 +43,16 @@ void loop()
     else 
     {
         //  send some random data
-        // String data = "This is random data from " + _macAddress + ": " + String(random(1000));
-        // for (int i = 0; i < peers.size(); i++)
-        // {
-        //     uint8_t* mac = peers.at(i);
-        //     Serial.print("Sending data to: "); Serial.println(service.macToString(mac));
-        //     if (!service.sendData(mac, (uint8_t*)data.c_str(), sizeof(data)))
-        //     {
-        //         Serial.println("Sending data failed.");
-        //     }
-        // }
+        String data = "This is random data from " + _macAddress + ": " + String(random(1000));
+        for (int i = 0; i < peers.size(); i++)
+        {
+            uint8_t* mac = peers.at(i);
+            Serial.print("Sending data to: "); Serial.println(service.macToString(mac));
+            if (!service.sendData(mac, (uint8_t*)data.c_str(), sizeof(data)))
+            {
+                Serial.println("Sending data failed.");
+            }
+        }
     }
     delay(10);
 }
@@ -78,9 +78,9 @@ void onPeerFound(DiscoveryInfo info)
     peers.push_back(info.macAddress);
 }
 
-void onDataReceived(uint8_t* data) 
+void onDataReceived(uint8_t* data, int length) 
 {
     //  get data as string (assuming json)
-    String json(data, sizeof(data));
+    String json(data, length);
     Serial.print("*** Data received: "); Serial.println(json);
 }
