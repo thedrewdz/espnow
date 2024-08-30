@@ -47,7 +47,7 @@ void NowService::initialize(PeerFoundCallback peerFound, DataReceivedCallback da
 {
     onPeerFound = peerFound;
     onDataReceived = dataRecevied;
-    
+
     serviceMode |= (isServer)? Server : Client;
     //  initialize wifi first
     WiFi.mode(WIFI_STA);
@@ -219,6 +219,8 @@ void onReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
             Serial.println("Actuall, no one is listening!");
             return;
         }
+        Serial.print("Attempting to add peer: "); Serial.println(len);
+
         // if (len != sizeof(DiscoveryInfo))
         // {
         //     Serial.println("Data does not appear to be DiscoveryInfo data!");
