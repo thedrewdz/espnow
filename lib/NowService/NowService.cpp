@@ -221,14 +221,16 @@ void onReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
         }
         Serial.print("Attempting to add peer: "); Serial.println(len);
 
-        // if (len != sizeof(DiscoveryInfo))
-        // {
-        //     Serial.println("Data does not appear to be DiscoveryInfo data!");
-        //     return;
-        // }
+        int l = sizeof(DiscoveryInfo);
+        if (len != l)
+        {
+            Serial.println("Data does not appear to be DiscoveryInfo data!");
+            return;
+        }
         //  receive the data
         DiscoveryInfo info;
-        memcpy(&info, incomingData, sizeof(info));
+        memset(&info, 0, l);
+        memcpy(&info, incomingData, len);
         //  notify any listeners
         instance->onPeerFound(info);
     }
