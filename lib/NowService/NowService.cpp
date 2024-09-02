@@ -13,7 +13,7 @@ uint8_t *macAddress;
 int serviceMode = None;
 
 unsigned int advertiseInterval = 1000;
-unsigned long advertiseTicks = 0;
+unsigned long advertiseTicks = 5000;
 unsigned long advertisePeriod = 300000;     //  default 5 mins
 unsigned long advertiseStart = 0;
 
@@ -216,15 +216,14 @@ void onReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
     {
         if (instance->onPeerFound == nullptr)
         {
-            Serial.println("Actuall, no one is listening!");
+            Serial.println("Actually, no one is listening!");
             return;
         }
-        Serial.print("Attempting to add peer: "); Serial.println(len);
 
         int l = sizeof(DiscoveryInfo);
         if (len != l)
         {
-            Serial.println("Data does not appear to be DiscoveryInfo data!");
+            Serial.print("Data does not appear to be DiscoveryInfo data! ("); Serial.print(l); Serial.println(")");
             return;
         }
         //  receive the data
@@ -241,7 +240,6 @@ void onReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
             Serial.println("No one is listening");
             return;
         }
-        Serial.print("Received data: "); Serial.println(len);
         instance->onDataReceived((uint8_t*)incomingData, len);
     }
 }
