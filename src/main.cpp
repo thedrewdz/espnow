@@ -44,11 +44,12 @@ void loop()
     {
         //  send some random data
         String data = "This is random data from " + _macAddress + ": " + String(random(1000));
+        int len = sizeof(data);
         for (int i = 0; i < peers.size(); i++)
         {
             uint8_t* mac = peers.at(i);
-            Serial.print("Sending data to: "); Serial.println(service.macToString(mac));
-            if (!service.sendData(mac, (uint8_t*)data.c_str(), sizeof(data)))
+            Serial.print("Sending data ("); Serial.print(len); Serial.print(") to: "); Serial.println(service.macToString(mac));
+            if (!service.sendData(mac, (uint8_t*)data.c_str(), len))
             {
                 Serial.println("Sending data failed.");
             }
