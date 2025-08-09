@@ -2,9 +2,8 @@
 #define NOW_SERVICE_H
 
 #include <Arduino.h>
-#include <vector>
 
-#include "DiscoveryInfo.h"
+#include "NowMsg.h"
 
 enum ServiceMode : int
 {
@@ -13,34 +12,49 @@ enum ServiceMode : int
     Advertise = 2,
     Discovery = 4,
     Broadcast = 8,
-    Server = 16,
-    Client = 32,
-    Terminate = 64
+    Terminate = 16,
+    Running = 32,
+    Bound = 64
+};
+
+enum ServiceRole
+{
+    Client,
+    Server
 };
 
 class NowService
 {
-public:
-    using PeerFoundCallback = std::function<void(DiscoveryInfo)>;
+protected:
+    using PeerFoundCallback = std::function<void(String)>;
     PeerFoundCallback onPeerFound;
 
     using DataReceivedCallback = std::function<void(uint8_t*, int length)>;
     DataReceivedCallback onDataReceived;
 
+    const uint8_t broadcastMac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    ServiceRole role = ServiceRole::Client;
+
+    uint8_t macAddress[6];
+    int serviceMode = None;
+
+    void readMacAddress();
+    void worker();
+    virtual void work(unsigned long now, unsigned long ticks);    
+    virtual void initialize();
+    bool sendMsg(const uint8_t* mac, const NowMsg& m);
+    void sendHeartbeat(const uint8_t *mac);
+    void addSourceMac(const uint8_t *sourceMac);
+    void removeSourceMac(const uint8_t *sourceMac);
+
+public:
     NowService();
 
     ~NowService();
 
-    void initialize(PeerFoundCallback peerFound, DataReceivedCallback dataRecevied, bool isServer = false);
-    void beginAdverise(uint8_t *mac, int interval = 1000, unsigned long period = 300000);
-    void endAdvertise();
-    void beginDiscovery(unsigned long period = 0);
-    void endDiscovery();
-
-    bool sendData(uint8_t *mac, uint8_t *data, int length);
-    void broadcastData(uint8_t *data, int length);
-
-    String macToString(uint8_t *mac);
+    void initialize(PeerFoundCallback peerFound, DataReceivedCallback dataRecevied);
+    bool sendData(const uint8_t *mac, uint8_t *data, int length);
+    virtual void dataReceived(const uint8_t *mac, const uint8_t *incomingData, int len);
 };
 
 #endif // NOW_SERVICE_H

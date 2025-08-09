@@ -1,24 +1,14 @@
 #include <WiFi.h>
 #include <iostream>
 #include <cstring>
-
+#include <Helpers.h>
 #include "esp_wifi.h"
 #include "esp_now.h"
+
 #include "NowService.h"
 
-const uint8_t broadcastMac[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
-
 NowService *instance;
-uint8_t *macAddress;
-int serviceMode = None;
-
-unsigned int advertiseInterval = 1000;
-unsigned long advertiseTicks = 5000;
-unsigned long advertisePeriod = 300000;     //  default 5 mins
-unsigned long advertiseStart = 0;
-
-unsigned long discoveryStart = 0;
-unsigned long discoveryPeriod = 0;          //  default to 0 = indefinite
+int serviceModePrev = None;
 
 unsigned long lastTick = 0;
 
@@ -29,220 +19,207 @@ unsigned long lastTick = 0;
 void worker(void *pvParameters);
 void onSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 void onReceived(const uint8_t *mac, const uint8_t *incomingData, int len);
-String macToString(uint8_t *mac);
 
 #pragma endregion Prototypes
 
-NowService::NowService() 
+NowService::NowService()
 {
     instance = this;
 }
 
 NowService::~NowService()
 {
-    delete(instance);
+    serviceMode = Terminate;
+    delete (instance);
 }
 
-void NowService::initialize(PeerFoundCallback peerFound, DataReceivedCallback dataRecevied, bool isServer) 
+void NowService::initialize(PeerFoundCallback peerFound, DataReceivedCallback dataRecevied)
 {
+    Serial.println("(initialize) Initializing...");
+
     onPeerFound = peerFound;
     onDataReceived = dataRecevied;
 
-    serviceMode |= (isServer)? Server : Client;
     //  initialize wifi first
     WiFi.mode(WIFI_STA);
     if (esp_now_init() != ESP_OK)
     {
-        Serial.println("Error initializing ESP-NOW");
+        Serial.println("    (initialize) Error initializing ESP-NOW");
         return;
     }
     //  register callbacks
     esp_now_register_send_cb(onSent);
     esp_now_register_recv_cb(esp_now_recv_cb_t(onReceived));
+    readMacAddress();
+
+    //  add omni channel
+    Serial.println("    (initialize) Register to receive data from omni channel");
+    addSourceMac(broadcastMac);
+
+    //  do specific initialization
+    initialize();
 
     //  start the task
-    xTaskCreatePinnedToCore(worker, "Worker Loop", 2048, NULL, 1, NULL, 0);
-
-    serviceMode = Initialized;
+    Serial.println("    (initialize) Starting loop...");
+    Helpers::setFlag(Initialized, serviceMode);
+    worker();
 }
 
-void NowService::beginAdverise(uint8_t *mac, int interval, unsigned long period)
+bool NowService::sendData(const uint8_t *mac, uint8_t *data, int length)
 {
-    advertiseInterval = (interval > 0)? interval : advertiseInterval;
-    macAddress = mac;
-    serviceMode |= Advertise;
-    advertisePeriod = period;
-    advertiseStart = millis();
-}
-
-void NowService::endAdvertise() 
-{
-    serviceMode ^= Advertise;
-}
-
-void NowService::beginDiscovery(unsigned long period)
-{
-    discoveryStart = millis();
-    discoveryPeriod = period;
-    serviceMode |= Discovery;
-}
-
-void NowService::endDiscovery()
-{
-    serviceMode ^= Discovery;
-}
-
-bool NowService::sendData(uint8_t *mac, uint8_t *data, int length)
-{
-    if (!esp_now_is_peer_exist(mac)) 
+    Serial.println("(sendData) Preparing to send data, To: " + Helpers::macToString(mac) + ", length: " + String(length));
+    //  ensure that the data length is <= 230 bytes
+    if (length > 230)
     {
-        const uint8_t m[6] = { mac[0], mac[1], mac[2], mac[3], mac[4], mac[5] };
-        esp_now_peer_info peer;
-        memset(&peer, 0, sizeof(esp_now_peer_info_t));
-        peer.channel = 0;
-        peer.encrypt = false;
-        memcpy(peer.peer_addr, m, 6);
-        esp_now_add_peer(&peer);
+        Serial.println("    (sendData) Unable to send more than 230 bytes for now.");
+        return;
     }
-
-    esp_err_t result = esp_now_send(mac, data, length);
-    return (result == ESP_OK)? true : false;
+    NowMsg out{};
+    if (!buildMsg(out, NOW_DT_DATA, macAddress, mac, data, length, millis()))
+    {
+        Serial.println("    (sendData) Unable to build message.");
+        return false;
+    }
+    if (!sendMsg(mac, out)) 
+    {
+        Serial.println("    (sendData) Unable to send message.");
+        return false;
+    }
+    return true;
 }
 
-void NowService::broadcastData(uint8_t *data, int length)
+bool NowService::sendMsg(const uint8_t* mac, const NowMsg& m) 
 {
-    instance->sendData((uint8_t*)broadcastMac, data, length);
+    int length = sizeof(NowMsg);
+    esp_err_t result = esp_now_send(mac, (uint8_t*)&m, length);
+    Serial.println("    (sendData) sending data result: " + String(result) + ", length: " + String(length));
+    return (result == ESP_OK) ? true : false;
+}
+
+void NowService::sendHeartbeat(const uint8_t *mac)
+{
+    Serial.println("(sendHeartbeat) Sending heartbeat");
+    NowMsg m{};
+    if (!buildMsg(m, NOW_DT_HEARTBEAT, macAddress, mac, nullptr, 0, millis())) return;
+    sendMsg(mac, m);
 }
 
 #pragma endregion NowService interface
 
 #pragma region Helpers
 
-void advertise() 
+void NowService::readMacAddress()
 {
-    DiscoveryInfo info;
-    memset(&info, 0, sizeof(DiscoveryInfo));
-    info.time = millis();
-    memcpy(info.macAddress, macAddress, 6);
-    bool success = instance->sendData((uint8_t *)broadcastMac, (uint8_t *)&info, sizeof(info));
-    Serial.print("Advertisement sent "); Serial.print(success); Serial.print(", Mode: "); Serial.println(serviceMode);
+    Serial.println("    (readMacAddress) Reading own MAC Address...");
+    esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, macAddress);
+    if (ret == ESP_OK)
+    {
+        Serial.println("    (readMacAddress) Success: " + Helpers::macToString(macAddress));
+    }
+    else
+    {
+        Serial.println("    (readMacAddress) Failed to read own MAC address");
+    }
 }
 
-
-bool macEquals(const uint8_t *mac1, const uint8_t *mac2) 
+void NowService::addSourceMac(const uint8_t *sourceMac)
 {
-    return memcmp(mac1, mac2, 6) == 0;
+    if (esp_now_is_peer_exist(sourceMac)) return;
+
+    Serial.println("    (addSourceMac) adding peer: " + Helpers::macToString(sourceMac));
+    const uint8_t m[6] = {sourceMac[0], sourceMac[1], sourceMac[2], sourceMac[3], sourceMac[4], sourceMac[5]};
+    esp_now_peer_info peer;
+    memset(&peer, 0, sizeof(esp_now_peer_info_t));
+    peer.channel = 0;
+    peer.encrypt = false;
+    memcpy(peer.peer_addr, m, 6);
+    if (esp_now_add_peer(&peer) != ESP_OK)
+    {
+        Serial.println("    (addSourceMac) Failed to add peer");
+    }
 }
 
-String NowService::macToString(uint8_t *mac)
+void NowService::removeSourceMac(const uint8_t *sourceMac)
 {
-    char buffer[18];
+    Serial.println("    (removeSourceMac) Removing source: " + Helpers::macToString(sourceMac));
+    if (!esp_now_is_peer_exist(sourceMac)) return;
 
-    snprintf(buffer, 
-        sizeof(buffer), 
-        "%02x:%02x:%02x:%02x:%02x:%02x\n", 
-        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, sourceMac, 6);
+    peerInfo.channel = 0; // 0 = current channel
+    peerInfo.encrypt = false;
 
-    return String(buffer);
+    if (esp_now_del_peer(sourceMac) != ESP_OK)
+    {
+        Serial.println("    (removeSourceMac) Failed to remove source: " + Helpers::macToString(sourceMac));
+    }
+    else
+    {
+        Serial.println("    (removeSourceMac) Source successfully removed: " + Helpers::macToString(sourceMac));
+    }
 }
 
 #pragma endregion Helpers
 
 #pragma region Worker Loop
 
-//  this method should be executed on core 1 so as not to interfere with WIFI and ESP-NOW functions
-void worker(void *pvParameters)
+void NowService::worker()
 {
-    Serial.println("Starting worker loop");
-    while(serviceMode != Terminate)
+    while (!Helpers::flagIsSet(Terminate, serviceMode))
     {
+        if (serviceMode != serviceModePrev)
+        {
+            Serial.println("    (worker) service mode changed: " + String(serviceMode) + " (" + String(serviceModePrev) + ")");
+            serviceModePrev = serviceMode;
+        }
+
         unsigned long now = millis();
         unsigned long ticks = now - lastTick;
         lastTick = now;
 
-        //  must we advertise
-        Serial.print("*** Service Mode: "); Serial.println(serviceMode);
-        if ((serviceMode & Advertise) == Advertise)
-        {
-            Serial.println("\tAdvertise: true");
-            advertiseTicks += ticks;
-            if (advertiseTicks > advertiseInterval)
-            {
-                Serial.print("\t\tInterval: "); Serial.println(advertiseTicks);
-                advertiseTicks = 0;
-                advertise();
-            }
-            //  stop advertising
-            if ((serviceMode & Advertise == Advertise) && (now - advertiseStart >= advertisePeriod)) serviceMode ^= Advertise;
-        }
-        if ((serviceMode & Discovery) == Discovery)
-        {
-            Serial.println("\tDiscovery: true");
-            //  check if we need to stop discovery
-            if ((discoveryPeriod > 0) && (now - discoveryStart >= discoveryPeriod))
-            {
-                Serial.println("\t\tTime to stop discovery");
-                serviceMode ^= Discovery;
-            }
-        }
+        work(now, ticks);
+
         //  give back to the processor
         vTaskDelay(1000);
     }
-    Serial.println("Worker loop teminated");
+    Serial.println("    (worker) The End!");
 }
 
 #pragma endregion Worker Loop
+
+#pragma region Virtuals
+
+void NowService::initialize()
+{
+    Serial.println("*** (virtual intialize) This shouldn't happen");
+}
+
+void NowService::work(unsigned long now, unsigned long ticks)
+{
+    Serial.println("*** (virtual work) This shouldn't happen");
+}
+void NowService::dataReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
+{
+    Serial.println("*** (virtual dataReceived) This shouldn't happen");
+}
+
+#pragma endregion Virtuals
 
 #pragma region Callbacks
 
 void onSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
-    Serial.print("Data send complete with status: "); Serial.println(status);
-    if (status == ESP_OK) return;
-    Serial.print("*** Data sending failed with the following error: "); Serial.println(status);
+    Serial.println("    (onSent) data send to: " + Helpers::macToString(mac_addr) + ", status: " + String(status));
+    if (status != ESP_OK)
+    {
+        Serial.print("*** Data sending failed with the following error: ");
+        Serial.println(status);
+    }
 }
 
 void onReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
-    Serial.print("Data received: "); Serial.println(len);
-    //  do we don't receive our own data
-    if (macEquals(macAddress, mac))
-    {
-        Serial.println("*** We received our own data :(");
-        return;
-    }
-
-    if (serviceMode & Discovery == Discovery)
-    {
-        if (instance->onPeerFound == nullptr)
-        {
-            Serial.println("Actually, no one is listening!");
-            return;
-        }
-
-        int l = sizeof(DiscoveryInfo);
-        if (len != l)
-        {
-            Serial.print("Data does not appear to be DiscoveryInfo data! ("); Serial.print(l); Serial.println(")");
-            return;
-        }
-        //  receive the data
-        DiscoveryInfo info;
-        memset(&info, 0, l);
-        memcpy(&info, incomingData, len);
-        //  notify any listeners
-        instance->onPeerFound(info);
-    }
-    else 
-    {
-        if (instance->onDataReceived == nullptr) 
-        {
-            Serial.println("No one is listening");
-            return;
-        }
-        instance->onDataReceived((uint8_t*)incomingData, len);
-    }
+    instance->dataReceived(mac, incomingData, len);
 }
 
 #pragma endregion Callbacks
-

@@ -1,87 +1,54 @@
 #include <Arduino.h>
 #include <NowService.h>
+#include <NowServer.h>
+#include <NowClient.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <vector>
 
-NowService service;
+#include <Helpers.cpp>
+
+NowService *service;
 String _macAddress;
 uint8_t _macPointer[6];
-std::vector<uint8_t*> peers;
+std::vector<uint8_t *> peers;
 
-void readMacAddress();
-void onPeerFound(DiscoveryInfo info);
-void onDataReceived(uint8_t* data, int length);
+void onPeerFound(String info);
+void onDataReceived(uint8_t *data, int length);
+void serviceThread(void *pvParameters);
 
-bool connect = true;
+bool server = true;
 
-void setup() 
+void setup()
 {
     Serial.begin(115200);
     //  initialize WIFI so we can get our own MAC
-    WiFi.mode(WIFI_STA);
-    readMacAddress();
-    Serial.print("Own MAC is: "); Serial.println(_macAddress);
     //  initialize the ESP-NOW service and start advertising
-    service.initialize(onPeerFound, onDataReceived, false);
-    service.beginAdverise(_macPointer, 2000, 3000);
-    service.beginDiscovery();
+    xTaskCreatePinnedToCore(serviceThread, "Worker Loop", 2048, NULL, 1, NULL, 0);
 }
 
 void loop()
 {
-    //  wait for peers to be discovered
-    if (connect) 
-    {
-        if (peers.size() >= 1)
-        {
-            connect = false;
-            service.endAdvertise();
-            service.endDiscovery();
-        }
-    }
-    else 
-    {
-        //  send some random data
-        String data = "This is random data from " + _macAddress + ": " + String(random(1000));
-        int len = sizeof(data);
-        for (int i = 0; i < peers.size(); i++)
-        {
-            uint8_t* mac = peers.at(i);
-            Serial.print("Sending data ("); Serial.print(len); Serial.print(") to: "); Serial.println(service.macToString(mac));
-            if (!service.sendData(mac, (uint8_t*)data.c_str(), len))
-            {
-                Serial.println("Sending data failed.");
-            }
-        }
-    }
     delay(1000);
 }
 
-void readMacAddress()
+void serviceThread(void *pvParameters)
 {
-    Serial.println("Reading MAC Address...");
-    // uint8_t baseMac[6];
-    esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, _macPointer);
-    if (ret == ESP_OK)
+    if (server) 
     {
-        _macAddress = service.macToString(_macPointer);
+        service = new NowServer();
     }
-    else
+    else 
     {
-        Serial.println("Failed to read MAC address");
+        service = new NowClient("CLIENT");
     }
+    service->initialize(onPeerFound, onDataReceived);
 }
 
-void onPeerFound(DiscoveryInfo info)
+void onPeerFound(String info)
 {
-    Serial.print("Found Peer: "); Serial.println(service.macToString(info.macAddress));
-    peers.push_back(info.macAddress);
 }
 
-void onDataReceived(uint8_t* data, int length) 
+void onDataReceived(uint8_t *data, int length)
 {
-    //  get data as string (assuming json)
-    String json(data, length);
-    Serial.print("*** Data received: "); Serial.println(json);
 }
