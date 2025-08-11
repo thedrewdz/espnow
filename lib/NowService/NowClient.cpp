@@ -3,6 +3,7 @@
 #include <Helpers.h>
 #include "NowClient.h"
 #include "NowMsg.h"
+#include "NowDebug.h"
 
 NowClient::NowClient(String name)
     : name(name)
@@ -34,7 +35,7 @@ void NowClient::advertise(unsigned long now, unsigned long ticks)
     if (elapsed > advertiseInterval)
     {
         advertiseLast = now;
-        Serial.println("    (advertise) Preparing to advertise...");
+        printDebug("(advertise) Preparing to advertise...", 0);
         // payload = client name as bytes (no NUL needed)
         NowMsg msg{};
         const uint8_t* p = reinterpret_cast<const uint8_t*>(name.c_str());
@@ -53,13 +54,13 @@ void NowClient::work(unsigned long now, unsigned long ticks)
 
 void NowClient::dataReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
-    Serial.println("    (dataReceived) Received data from: " + Helpers::macToString(mac) + ", length: " + String(len));
+    printDebug("(dataReceived) Received data from: " + Helpers::macToString(mac) + ", length: " + String(len), 0);
 
     String myMac = Helpers::macToString(macAddress);
     //  check that we didn't receive our own data
     if (Helpers::macEquals(macAddress, mac))
     {
-        Serial.println("*** (dataReceived) We received our own data - " + myMac + ", " + Helpers::macToString(mac));
+        printDebug("*** (dataReceived) We received our own data - " + myMac + ", " + Helpers::macToString(mac), 0);
         return;
     }
 
@@ -68,36 +69,61 @@ void NowClient::dataReceived(const uint8_t *mac, const uint8_t *incomingData, in
     receiveLast = millis();
     const NowMsg* m = reinterpret_cast<const NowMsg*>(incomingData);
 
+    //  only our bound server can send us anything except a connect message
+    if ((m->datatype > NOW_DT_CONNECT) && !Helpers::macEquals(m->fromMac, boundMac))
+    {
+        printDebug("    (dataReceived) *** Received data from a different source: " + Helpers::macToString(m->fromMac) + ". Ignoring (" + Helpers::macToString(boundMac) + ")", 1);
+        return;
+    }
+
     if (m->datatype == NOW_DT_CONNECT)
     {
-        Serial.println("    (dataReceived-1) Accepting CONNECT from server");
+        printDebug("    (dataReceived-1) Accepting CONNECT from server", 1);
         // ensure message aimed at us
         if (!Helpers::macEquals(macAddress, m->toMac)) return;
         addSourceMac(m->fromMac);
+        Helpers::parseMac(m->fromMac, boundMac);
         // send HANDSHAKE back
-        Serial.println("    (dataReceived-1) Initiate Handshake");
+        printDebug("    (dataReceived-1) Initiate Handshake", 1);
         NowMsg out{};
         if (buildMsg(out, NOW_DT_HANDSHAKE, macAddress, m->fromMac, nullptr, 0, millis()))
           sendMsg(mac, out);
         //  stop advertising
-        Serial.println("    (dataReceived-1) Stop advertising");
+        printDebug("    (dataReceived-1) Stop advertising", 1);
         endAdvertise();
     }
     else if (m->datatype == NOW_DT_ACK)
     {
         receiveLast = millis();
-        Serial.println("    (dataReceieved-3) Handshake complete. Stop receiving on omni channel");
+        printDebug("    (dataReceieved-3) Handshake complete. Stop receiving on omni channel", 1);
         //  unsubscribe from omni channel
         removeSourceMac(broadcastMac);
         //  we're now up and running
         Helpers::setFlag(Running, serviceMode);
+        Helpers::setFlag(Bound, serviceMode);
         serverMac = Helpers::macToString(m->fromMac);
-        Serial.println("    (dataReceived-3) Now connected to server: " + serverMac);
+        Helpers::parseMac(m->fromMac, boundMac);
+        printDebug("    (dataReceived-3) Now connected to server: " + serverMac + " (" + Helpers::macToString(boundMac) + ")", 1);
+        if (onPeerBound) onPeerBound(Helpers::macToString(boundMac));
     }
     else if (m->datatype == NOW_DT_HEARTBEAT)
     {
-        Serial.println("    (dataReceived-4) Heartbeat received from server. Timeout reset.");
+        receiveLast = millis();
+        printDebug("    (dataReceived-4) Heartbeat received from server. Timeout reset.", 1);
         countHb = 0;
+    }
+    else if (m->datatype == NOW_DT_DATA)
+    {
+        receiveLast = millis();
+        //  make received data available to the consumer
+        uint16_t n = m->length;
+        if (!onDataReceived || (n == 0) || (n > sizeof(m->payload))) return;
+        uint8_t *copy = static_cast<uint8_t *>(malloc(n));
+        if (!copy) return;
+        memcpy(copy, m->payload, n);
+        onDataReceived(copy, static_cast<int>(n));
+        free(copy);
+        return;
     }
 }
 
@@ -105,9 +131,9 @@ void NowClient::initialize()
 {
     //  begin advertising
     Helpers::setFlag(Advertise, serviceMode);
-    Serial.println("    (initialize) Starting client, advertise interval: " + String(advertiseInterval));
+    printDebug("(initialize) Starting client, advertise interval: " + String(advertiseInterval), 0);
     beginAdverise();
-    Serial.println("    (initialize) Client Ready!");
+    printDebug("(initialize) Client Ready!", 0);
 }
 
 void NowClient::checkTimeout(unsigned long now)
@@ -118,21 +144,22 @@ void NowClient::checkTimeout(unsigned long now)
     if (elapsed <= receiveCheckInterval) return;
     receiveCheckLast = now;
 
-    // Serial.println("(checkTimeout) Checking receive timeout...");
     elapsed = now - receiveLast;
     //  should we request a heartbeat?
     if (elapsed <= receiveTimeout) return;
-    Serial.println("(checkTimeout) Requesting heartbeat after " + String(elapsed) + "ms.");
+    printDebug("(checkTimeout) Requesting heartbeat after " + String(elapsed) + "ms.", 0);
     uint8_t sMac[6];
     Helpers::parseMac(serverMac, sMac);
     sendHeartbeat(sMac);
     countHb++;
 
     if (countHb < 3) return;
-    Serial.println("    (checkTimeout) We haven't received anything for " + String(elapsed) + "ms, returning advertising");
+    printDebug("    (checkTimeout) We haven't received anything for " + String(elapsed) + "ms, returning advertising", 1);
     //  we're not running anymore
     serverMac = "";
+    memset(boundMac, 0x0, 6);
     Helpers::unsetFlag(Running, serviceMode);
+    Helpers::unsetFlag(Bound, serviceMode);
     //  read omni channel
     addSourceMac(broadcastMac);
     //  start advertising

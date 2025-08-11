@@ -26,8 +26,8 @@ enum ServiceRole
 class NowService
 {
 protected:
-    using PeerFoundCallback = std::function<void(String)>;
-    PeerFoundCallback onPeerFound;
+    using BoundCallback = std::function<void(String)>;
+    BoundCallback onPeerBound;
 
     using DataReceivedCallback = std::function<void(uint8_t*, int length)>;
     DataReceivedCallback onDataReceived;
@@ -36,6 +36,7 @@ protected:
     ServiceRole role = ServiceRole::Client;
 
     uint8_t macAddress[6];
+    uint8_t boundMac[6];
     int serviceMode = None;
 
     void readMacAddress();
@@ -52,8 +53,8 @@ public:
 
     ~NowService();
 
-    void initialize(PeerFoundCallback peerFound, DataReceivedCallback dataRecevied);
-    bool sendData(const uint8_t *mac, uint8_t *data, int length);
+    void initialize(BoundCallback peerBound, DataReceivedCallback dataRecevied);
+    bool sendData(const uint8_t *data, int length);
     virtual void dataReceived(const uint8_t *mac, const uint8_t *incomingData, int len);
 };
 

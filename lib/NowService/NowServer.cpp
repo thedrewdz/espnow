@@ -3,6 +3,7 @@
 #include "esp_now.h"
 
 #include "NowServer.h"
+#include "NowDebug.h"
 
 NowServer::NowServer()
 {
@@ -16,26 +17,28 @@ NowServer::~NowServer()
 void NowServer::work(unsigned long now, unsigned long ticks)
 {
     //  make sure we can let idle clients go
-    if (selectedClient)
+    if (boundMac && !Helpers::macIsEmpty(boundMac, sizeof(boundMac)))
     {
         unsigned long elapsed = now - clientLast;
-        if (elapsed < clientTimeout)
-            return;
+        if (elapsed < clientTimeout) return;
+        //  get our selected client data
+        ClientData client;
+        getClient(boundMac, client);
         //  client hasn't sent a heartbeat - unbind
         Helpers::unsetFlag(Bound, serviceMode);
-        selectedClient->state = CLIENT_DATA_NEW;
-        selectedClient = nullptr;
+        client.state = CLIENT_DATA_NEW;
+        memset(boundMac, 0x0, 6);
     }
 }
 
 void NowServer::dataReceived(const uint8_t *mac, const uint8_t *incomingData, int len)
 {
-    Serial.println("    (dataReceived) Received data from: " + Helpers::macToString(mac) + ", length: " + String(len));
+    printDebug("(dataReceived) Received data from: " + Helpers::macToString(mac) + ", length: " + String(len), 0);
     String myMac = Helpers::macToString(macAddress);
     //  check that we didn't receive our own data
     if (Helpers::macEquals(macAddress, mac))
     {
-        Serial.println("*** (dataReceived) We received our own data - " + myMac + ", " + Helpers::macToString(mac));
+        printDebug("*** (dataReceived) We received our own data - " + myMac + ", " + Helpers::macToString(mac), 0);
         return;
     }
 
@@ -48,10 +51,10 @@ void NowServer::dataReceived(const uint8_t *mac, const uint8_t *incomingData, in
     uint16_t replyType = 0;
     if (m->datatype == NOW_DT_ADVERTISE)
     {
-        Serial.println("    (dataReceived-0) Client advertisement received.");
-        if (selectedClient)
+        printDebug("    (dataReceived-0) Client advertisement received.", 1);
+        if (boundMac && !Helpers::macIsEmpty(boundMac, sizeof(boundMac)))
         {
-            Serial.println("    (dataReceived-0) Already bound to a client. Ignore.");
+            printDebug("    (dataReceived-0) Already bound to a client. Ignore.", 1);
             return;
         }
         // name came in payload (not NUL-terminated). Copy safely:
@@ -67,10 +70,10 @@ void NowServer::dataReceived(const uint8_t *mac, const uint8_t *incomingData, in
     }
     else if (m->datatype == NOW_DT_HANDSHAKE)
     {
-        Serial.println("    (dataReceived-2) Client handshake received.");
-        if (selectedClient)
+        printDebug("    (dataReceived-2) Client handshake received.", 1);
+        if (boundMac && !Helpers::macIsEmpty(boundMac, sizeof(boundMac)) && !Helpers::macEquals(m->fromMac, boundMac))
         {
-            Serial.println("    (dataReceived-2) Already bound to a client. Ignore.");
+            printDebug("    (dataReceived-2) Already bound to a client (" + Helpers::macToString(boundMac) + "). Ignore (" + Helpers::macToString(m->fromMac) + ")", 1);
             return;
         }
         clientLast = millis();
@@ -79,36 +82,37 @@ void NowServer::dataReceived(const uint8_t *mac, const uint8_t *incomingData, in
         replyType = NOW_DT_ACK;
         //  we're bound now
         Helpers::setFlag(Bound, serviceMode);
+        if (onPeerBound) onPeerBound(Helpers::macToString(boundMac));
     }
     else if (m->datatype == NOW_DT_HEARTBEAT)
     {
         //  make sure the heartbeat is from our bound client
-        if (!selectedClient)
+        if (!boundMac || Helpers::macIsEmpty(boundMac, sizeof(boundMac)))
         {
-            Serial.println("    (dataReceived-4) Not bound to a client. Ignore.");
+            printDebug("    (dataReceived-4) Not bound to a client. Ignore.", 1);
             return;
         }
-        if (!selectedClient->macAddress.equals(Helpers::macToString(m->fromMac)))
+        if (!Helpers::macEquals(boundMac, m->fromMac))
         {
-            Serial.println("    (dataReceived-4) Heartbeat request received from unbound client. Ignore, client will reset to advertise.");
+            printDebug("    (dataReceived-4) Heartbeat request received from unbound client. Ignore, client will reset to advertise.", 1);
             return;
         }
         clientLast = millis();
-        Serial.println("    (dataReceived-4) Client heartbeat request.");
+        printDebug("    (dataReceived-4) Client heartbeat request.", 1);
         sendHeartbeat(m->fromMac);
         return;
     }
     else if (m->datatype == NOW_DT_DATA)
     {
         //  make sure the heartbeat is from our bound client
-        if (!selectedClient)
+        if (!boundMac || Helpers::macIsEmpty(boundMac, sizeof(boundMac)))
         {
-            Serial.println("    (dataReceived-5) Not bound to a client. Ignore.");
+            printDebug("    (dataReceived-5) Not bound to a client. Ignore.", 1);
             return;
         }
-        if (!selectedClient->macAddress.equals(Helpers::macToString(m->fromMac)))
+        if (!Helpers::macEquals(boundMac, m->fromMac))
         {
-            Serial.println("    (dataReceived-5) Incoming data from unbound client. Ignore.");
+            printDebug("    (dataReceived-5) Incoming data from unbound client. Ignore.", 1);
             return;
         }
         clientLast = millis();
@@ -133,14 +137,14 @@ void NowServer::dataReceived(const uint8_t *mac, const uint8_t *incomingData, in
 
 void NowServer::initialize()
 {
-    selectedClient = nullptr;
+    memset(boundMac, 0x0, 6);
     clientLast = 0;
-    Serial.println("    (initialize) Server Ready!");
+    printDebug("(initialize) Server Ready!", 0);
 }
 
 void NowServer::addClient(String name, String address, int state)
 {
-    Serial.println("    (addClient) Preparing to add client: " + name + ", " + address);
+    ("(addClient) Preparing to add client: " + name + ", " + address, 0);
     //  add client as source - duplicates won't be added
     uint8_t mac[6];
     Helpers::parseMac(address, mac);
@@ -152,12 +156,12 @@ void NowServer::addClient(String name, String address, int state)
         {
             if (client.state == state)
             {
-                Serial.println("    (addClient) Duplicate client received: " + address);
+                printDebug("    (addClient) Duplicate client received: " + address, 1);
                 return;
             }
             else
             {
-                Serial.println("    (addClient) Updating client state: " + String(state) + " (" + String(client.state) + ")");
+                printDebug("    (addClient) Updating client state: " + String(state) + " (" + String(client.state) + ")", 1);
                 client.state = state;
                 return;
             }
@@ -166,10 +170,25 @@ void NowServer::addClient(String name, String address, int state)
     //  add to the list
     if (name.isEmpty())
     {
-        Serial.println("    (addClient) Unable to add client without name.");
+        printDebug("    (addClient) Unable to add client without name.", 1);
         return;
     }
     ClientData client(name, address, state);
-    selectedClient = &client;
     clients.push_back(client);
+    Helpers::parseMac(mac, boundMac);
+}
+
+void NowServer::getClient(const uint8_t *mac, ClientData &outClient)
+{
+    if (clients.size() == 0) return;
+    for (ClientData &client : clients)
+    {
+        uint8_t cmac[6];
+        Helpers::parseMac(client.macAddress, cmac);
+        if (Helpers::macEquals(cmac, mac)) 
+        {
+            outClient = client;
+            return;
+        }
+    }
 }

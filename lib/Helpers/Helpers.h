@@ -11,6 +11,8 @@ public:
     static String macToString(const uint8_t *mac);
     static bool macEquals(const uint8_t *mac1, const uint8_t *mac2);
     static void parseMac(const String &s, uint8_t *mac);
+    static void parseMac(const uint8_t *inMac, uint8_t *outMac);
+    static bool macIsEmpty(const uint8_t *mac, int len);
 
 private:
     Helpers() = delete;

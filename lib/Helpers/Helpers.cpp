@@ -34,10 +34,8 @@ bool Helpers::macEquals(const uint8_t *mac1, const uint8_t *mac2)
 
 void Helpers::parseMac(const String &s, uint8_t *mac)
 {
-    Serial.println("    (parseMac) Parsing address: " + s);
-    if (s.isEmpty()) 
+    if (s.isEmpty())
     {
-        Serial.println("    (parseMac) String is empty, unable to parse.");
         return;
     }
     //  assuming mac is in the format "xx:xx:xx:xx:xx:xx"
@@ -46,4 +44,22 @@ void Helpers::parseMac(const String &s, uint8_t *mac)
         String ss = s.substring(i * 3, i * 3 + 2);
         mac[i] = strtoul(ss.c_str(), NULL, 16);
     }
+}
+
+void Helpers::parseMac(const uint8_t *inMac, uint8_t *outMac)
+{
+    for (int i = 0; i < 6; i++)
+    {
+        outMac[i] = inMac[i];
+    }
+}
+
+bool Helpers::macIsEmpty(const uint8_t *mac, int len)
+{
+    if (!mac || (len < 6)) return true;
+    for (int i = 0; i < 6; i++)
+    {
+        if (mac[i] != 0) return false;
+    }
+    return true;
 }
