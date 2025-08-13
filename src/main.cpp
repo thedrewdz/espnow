@@ -6,8 +6,6 @@
 #include <esp_wifi.h>
 #include <vector>
 
-#include <Helpers.cpp>
-
 NowService *service;
 String _macAddress;
 uint8_t _macPointer[6];
